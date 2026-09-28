@@ -10957,7 +10957,7 @@ Returns the file path, or nil if disabled."
             (write-region
              (concat (agent-shell--make-transcript-frontmatter
                       (list (cons "agent" (format "%S" agent-name))
-                            (cons "started" (format-time-string "%F %T"))
+                            (cons "started" (format-time-string "%FT%T%:z"))
                             (cons "working_directory" (format "%S" (agent-shell-cwd)))
                             (when session-id
                               (cons "session_id" (format "%S" session-id)))

@@ -2158,13 +2158,13 @@ fast: requesting on... done"))
   ;; All fields present.
   (should (equal (agent-shell--make-transcript-frontmatter
                   (list (cons "agent" "\"Claude\"")
-                        (cons "started" "2025-11-02 18:17:41")
+                        (cons "started" "2025-11-02T18:17:41-05:00")
                         (cons "working_directory" "\"/home/user/project/\"")
                         (cons "session_id" "\"eb5b6105\"")
                         (cons "model" "\"opus\"")))
                  "---
 agent: \"Claude\"
-started: 2025-11-02 18:17:41
+started: 2025-11-02T18:17:41-05:00
 working_directory: \"/home/user/project/\"
 session_id: \"eb5b6105\"
 model: \"opus\"
