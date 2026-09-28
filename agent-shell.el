@@ -10920,6 +10920,26 @@ For example:
        (message "Failed to generate transcript path: %S" err)
        nil))))
 
+(defun agent-shell--make-transcript-frontmatter (fields)
+  "Render FIELDS as a YAML frontmatter block.
+
+FIELDS is an alist mapping string keys to pre-rendered YAML scalar
+values.  Nil elements are skipped, so callers can build FIELDS with
+`when' for optional fields.  Quoting values that YAML would otherwise
+misinterpret is the caller's responsibility.
+
+For example:
+
+  (agent-shell--make-transcript-frontmatter
+   (list (cons \"agent\" \"Claude\") nil))
+    => \"---\\nagent: Claude\\n---\\n\\n\""
+  (concat "---\n"
+          (mapconcat (lambda (field)
+                       (format "%s: %s" (car field) (cdr field)))
+                     (delq nil fields)
+                     "\n")
+          "\n---\n\n"))
+
 (defun agent-shell--ensure-transcript-file ()
   "Ensure the transcript file exists, creating it with header if needed.
 Returns the file path, or nil if disabled."
@@ -10935,24 +10955,15 @@ Returns the file path, or nil if disabled."
                 (session-id (map-nested-elt agent-shell--state '(:session :id)))
                 (model-id (map-nested-elt agent-shell--state '(:session :model-id))))
             (write-region
-             (format "# Agent Shell Transcript
-
-**Agent:** %s
-**Started:** %s
-**Working Directory:** %s%s%s
-
----
-
-"
-                     agent-name
-                     (format-time-string "%F %T")
-                     (agent-shell-cwd)
-                     (if session-id
-                         (format "\n**Session ID:** %s" session-id)
-                       "")
-                     (if model-id
-                         (format "\n**Model:** %s" model-id)
-                       ""))
+             (concat (agent-shell--make-transcript-frontmatter
+                      (list (cons "agent" (format "%S" agent-name))
+                            (cons "started" (format "%S" (format-time-string "%F %T")))
+                            (cons "working_directory" (format "%S" (agent-shell-cwd)))
+                            (when session-id
+                              (cons "session_id" (format "%S" session-id)))
+                            (when model-id
+                              (cons "model" (format "%S" model-id)))))
+                     "# Agent Shell Transcript\n\n")
              nil filepath nil 'no-message)
             (message "Created %s"
                      (agent-shell--shorten-paths filepath t)))
