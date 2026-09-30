@@ -74,13 +74,28 @@ TODO: Remove after 2026-08-28."
                        (map-elt agent-shell--state :pending-requests))))))
 
 (cl-defun agent-shell--prompt-queue-process-next ()
-  "Process the next pending prompt from the queue if available."
+  "Submit all pending prompts from the queue as a single prompt.
+
+Prompts queued while a turn runs are typically follow-ups to the same
+instruction, so they are joined (separated by blank lines) and sent
+together rather than as one turn each.
+
+For example, given:
+
+  :pending-prompts (\"just the filenames\" \"sorted by size\")
+
+submits:
+
+  just the filenames
+
+  sorted by size
+
+and leaves :pending-prompts empty."
   (unless (derived-mode-p 'agent-shell-mode)
     (error "Not in a shell"))
   (agent-shell--prompt-queue-migrate)
-  (when-let* ((pending (map-elt agent-shell--state :pending-prompts))
-              (next-prompt (car pending)))
-    (map-put! agent-shell--state :pending-prompts (cdr pending))
+  (when-let* ((pending (map-elt agent-shell--state :pending-prompts)))
+    (map-put! agent-shell--state :pending-prompts nil)
     ;; The turn just ended, so the persistent prompt may hold text the user
     ;; started typing and has not submitted.  Submitting the queued prompt
     ;; inserts at `point-max', which would put it ahead of that draft and
@@ -89,7 +104,7 @@ TODO: Remove after 2026-08-28."
     (let ((draft (and agent-shell-persistent-prompt-enabled
                       (agent-shell--take-prompt-input))))
       (agent-shell--insert-to-shell-buffer
-       :text next-prompt
+       :text (string-join pending "\n\n")
        :submit t
        :no-focus t)
       (when draft
@@ -354,7 +369,8 @@ Read PROMPT from the minibuffer and act on the current project's shell,
 resolving it via `agent-shell--shell-buffer' so this works even when
 invoked outside a shell buffer.  If the shell is busy, add PROMPT to the
 pending prompts queue.  Otherwise, submit it immediately.  Queued prompts
-will be automatically sent when the current prompt completes.
+are automatically sent, merged into a single prompt, when the current
+prompt completes or is cancelled.
 
 Always queues, ignoring `agent-shell-busy-submit-default-function'.
 

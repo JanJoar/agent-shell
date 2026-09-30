@@ -1089,6 +1089,38 @@ The fallback triggers when `agent-shell--build-content-blocks' fails."
         (should (equal (map-elt (map-elt data :usage) :total-tokens)
                        1500))))))
 
+(ert-deftest agent-shell--send-command-drains-queue-on-cancel-test ()
+  "Test a cancelled turn moves on to the queued prompts."
+  (let ((captured-on-success nil)
+        (processed nil)
+        (agent-shell--state (list (cons :buffer (current-buffer))
+                                  (cons :event-subscriptions nil)
+                                  (cons :client 'test-client)
+                                  (cons :session (list (cons :id "test-session") (cons :title nil)))
+                                  (cons :last-entry-type nil)
+                                  (cons :tool-calls nil)
+                                  (cons :usage (list (cons :total-tokens 0)))
+                                  (cons :idle-timer nil)))
+        (agent-shell-show-busy-indicator nil)
+        (agent-shell-show-usage-at-turn-end nil))
+    (cl-letf (((symbol-function 'agent-shell--state)
+               (lambda () agent-shell--state))
+              ((symbol-function 'agent-shell--send-request)
+               (lambda (&rest args)
+                 (setq captured-on-success (plist-get args :on-success))))
+              ((symbol-function 'agent-shell--finish-output)
+               (lambda (&rest _)))
+              ((symbol-function 'agent-shell--update-fragment)
+               (lambda (&rest _)))
+              ((symbol-function 'agent-shell--prompt-queue-process-next)
+               (lambda (&rest _) (setq processed t))))
+      (agent-shell--send-command
+       :prompt "Hello"
+       :shell-buffer (current-buffer))
+      (should captured-on-success)
+      (funcall captured-on-success '((stopReason . "cancelled")))
+      (should processed))))
+
 (ert-deftest agent-shell--send-command-emits-input-submitted-with-prompt-test ()
   "Test `input-submitted' carries the expanded prompt text."
   (let ((received-events nil)
@@ -6834,6 +6866,25 @@ and its value returned."
       (when (process-live-p fake-process)
         (delete-process fake-process))
       (kill-buffer buffer))))
+
+(ert-deftest agent-shell--prompt-queue-process-next-merges-test ()
+  "All queued prompts are submitted together as one prompt."
+  (should (equal
+           (agent-shell-tests--with-persistent-prompt-shell
+            (lambda ()
+              (insert "just the filenames")
+              (agent-shell-submit)
+              (insert "sorted by size")
+              (agent-shell-submit)
+              (let ((submitted nil))
+                (cl-letf (((symbol-function 'agent-shell--insert-to-shell-buffer)
+                           (lambda (&rest args)
+                             (setq submitted (plist-get args :text)))))
+                  (agent-shell--prompt-queue-process-next))
+                (list submitted
+                      (map-elt agent-shell--state :pending-prompts))))
+            :busy t)
+           (list "just the filenames\n\nsorted by size" nil))))
 
 (ert-deftest agent-shell-queued-image-keeps-preview-test ()
   "A pasted image keeps its preview through busy queueing and submission."
