@@ -104,6 +104,7 @@ We now have a handful of additional packages to extend the =agent-shell= experie
 - [[https://github.com/Jamie-Cui/agent-shell-permission-transient][agent-shell-permission-transient]]: A compact Transient interface for responding to queued agent-shell permission requests.
 - [[https://github.com/tychoish/agent-shell-queue][agent-shell-queue]]: A flexible prompt/shell queue for =agent-shell= sessions.
 - [[https://github.com/mrcnski/agent-shell-queue-transient][agent-shell-queue-transient]]: A Transient interface for the prompt queue in =agent-shell=.
+- [[https://github.com/izeigerman/agent-shell-gc][agent-shell-gc]]: Garbage collection for =agent-shell=.
 
 * Articles
 - 20Y: [[https://20y.hu/~slink/journal/agent-shell/index.html][Agentic development workflow in Emacs]]
