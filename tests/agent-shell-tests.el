@@ -8141,6 +8141,24 @@ it in the current window."
         (map-put! (map-elt agent-shell--state :heartbeat) :value 7)
         (should (equal (agent-shell--busy-indicator-frame) " busy"))))))
 
+(ert-deftest agent-shell--busy-indicator-frame-accepts-function-test ()
+  "A function's result is read as `agent-shell-busy-indicator-frames' is."
+  (with-temp-buffer
+    (setq-local agent-shell--state
+                (list (cons :heartbeat (list (cons :status 'busy)
+                                             (cons :value 1)))))
+    (cl-letf (((symbol-function 'agent-shell--state)
+               (lambda () agent-shell--state)))
+      (let ((agent-shell-show-busy-indicator t)
+            (agent-shell-busy-indicator-frames (lambda () "(connecting)")))
+        (should (equal (agent-shell--busy-indicator-frame) " (connecting)"))
+        (setq agent-shell-busy-indicator-frames (lambda () ["a" "b"]))
+        (should (equal (agent-shell--busy-indicator-frame) " b"))
+        (setq agent-shell-busy-indicator-frames (lambda () 'wide))
+        (should (equal (agent-shell--busy-indicator-frame) " ░░  "))
+        (setq agent-shell-busy-indicator-frames #'ignore)
+        (should-not (agent-shell--busy-indicator-frame))))))
+
 (ert-deftest agent-shell--make-heartbeat-handler-skips-unchanged-frames-test ()
   "A busy tick redraws only when its frames change.
 Starting and ending ticks always redraw, and so does the first visible

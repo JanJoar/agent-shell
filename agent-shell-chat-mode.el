@@ -70,14 +70,22 @@ overridden the next time a shell starts."
   :type 'boolean
   :group 'agent-shell)
 
-(defvar agent-shell-prompt-busy-frames
-  ["|" "/" "-" "\\"]
+(defcustom agent-shell-prompt-busy-frames
+  '("|" "/" "-" "\\")
   "Frames animating the live prompt's marker while the agent works.
-A vector or list of strings, drawn in the body indent ahead of the
-marker, or a string shown as is, without animating.  For example,
-[\"·\" \"•\" \"●\" \"•\"] or \"busy\".
+A list or vector of strings, drawn in the body indent ahead of the
+marker, a string shown as is, without animating, or a function
+returning either (or nil to show nothing).  For example,
+\\='(\"·\" \"•\" \"●\" \"•\") or \"(busy)\".
 
-The body indent fits a single column, so a wider frame (like \"busy\")
+A function takes no arguments and is called in the shell buffer on
+every heartbeat tick, so keep it cheap.  For example, to show
+\"(connecting)\" until the session starts, and \"(busy)\" after:
+
+  (lambda ()
+    (if (agent-shell-session-id) \"(busy)\" \"(connecting)\"))
+
+The body indent fits a single column, so a wider frame (like \"(busy)\")
 is followed by a plain space, pushing the marker right while the agent
 works.
 
@@ -85,7 +93,11 @@ ASCII by default, so the buffer's own font draws them.  Anything a font
 may lack comes from a fallback font instead, which can draw it wider
 than a column or with a taller line, bouncing the prompt as frames
 change.  Braille, the usual spinner, is one such (and may show unraised
-dots).")
+dots)."
+  :type '(choice (string :tag "Static text")
+                 (repeat :tag "Frames" string)
+                 (function :tag "Function"))
+  :group 'agent-shell)
 
 ;;; Constants
 
@@ -146,15 +158,17 @@ returns \" Me \" in that face."
   "Return the busy frame for the heartbeat's current beat, or nil when idle.
 
 For example, on the heartbeat's third beat returns \"-\".  With
-`agent-shell-prompt-busy-frames' set to a string, returns that string
-on every beat."
+`agent-shell-prompt-busy-frames' set to a string, or to a function
+returning one, returns that string on every beat."
   (when-let* (((bound-and-true-p agent-shell-show-busy-indicator))
               (heartbeat (map-elt agent-shell--state :heartbeat))
-              ((eq (map-elt heartbeat :status) 'busy)))
-    (if (stringp agent-shell-prompt-busy-frames)
-        agent-shell-prompt-busy-frames
-      (seq-elt agent-shell-prompt-busy-frames
-               (mod (map-elt heartbeat :value) (seq-length agent-shell-prompt-busy-frames))))))
+              ((eq (map-elt heartbeat :status) 'busy))
+              (frames (if (functionp agent-shell-prompt-busy-frames)
+                          (funcall agent-shell-prompt-busy-frames)
+                        agent-shell-prompt-busy-frames)))
+    (if (stringp frames)
+        frames
+      (seq-elt frames (mod (map-elt heartbeat :value) (seq-length frames))))))
 
 (defun agent-shell-chat--live-marker ()
   "Return the live prompt's marker, animated while the agent works.
@@ -166,7 +180,7 @@ A frame's glyph can come from a fallback font wider than a column, so
 the space after it aligns the marker to the body indent rather than
 trusting the frame's width.  Aligned in units of the buffer's own font,
 which unlike bare columns follow `text-scale-adjust'.  A frame wider
-than a column (like \"busy\") can't fit the indent, so a plain space
+than a column (like \"(busy)\") can't fit the indent, so a plain space
 follows it instead."
   (if-let* ((frame (agent-shell-chat--busy-frame)))
       (concat (propertize frame 'face 'agent-shell-secondary)

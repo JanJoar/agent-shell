@@ -586,15 +586,24 @@ Only appears when a session is active."
 (defcustom agent-shell-busy-indicator-frames 'wide
   "Frames for the busy indicator animation.
 Can be a symbol selecting a predefined style, a list of frame strings,
-or a string shown as is, without animating.  When providing custom
-frames, do not include leading spaces as padding is added automatically."
+a string shown as is, without animating, or a function returning any of
+these (or nil to show nothing).  When providing custom frames, do not
+include leading spaces as padding is added automatically.
+
+A function takes no arguments and is called in the shell buffer on
+every heartbeat tick, so keep it cheap.  For example, to show
+\"(connecting)\" until the session starts, and \"(busy)\" after:
+
+  (lambda ()
+    (if (agent-shell-session-id) \"(busy)\" \"(connecting)\"))"
   :type '(choice (const :tag "Circle (blinks)" circle)
                  (const :tag "Wave (pulses up and down)" wave)
                  (const :tag "Dots Block (circular spin)" dots-block)
                  (const :tag "Dots Round (circular spin)" dots-round)
                  (const :tag "Wide (horizontal blocks)" wide)
                  (string :tag "Static text")
-                 (repeat :tag "Custom frames" string))
+                 (repeat :tag "Custom frames" string)
+                 (function :tag "Function"))
   :group 'agent-shell)
 
 (defcustom agent-shell-inhibit-system-sleep t
@@ -10450,14 +10459,16 @@ Prefers config option data when available."
   "Return busy frame string or nil if not busy."
   (when-let* ((agent-shell-show-busy-indicator)
               ((eq 'busy (map-nested-elt (agent-shell--state) '(:heartbeat :status))))
-              (frames (pcase agent-shell-busy-indicator-frames
+              (frames (pcase (if (functionp agent-shell-busy-indicator-frames)
+                                 (funcall agent-shell-busy-indicator-frames)
+                               agent-shell-busy-indicator-frames)
                         ('circle '("●" "●" "●" "●" "●" " " " " " " " "  " "))
                         ('wave '("▁" "▂" "▃" "▄" "▅" "▆" "▇" "█" "▇" "▆" "▅" "▄" "▃" "▂"))
                         ('dots-block '("⣷" "⣯" "⣟" "⡿" "⢿" "⣻" "⣽" "⣾"))
                         ('dots-round '("⢎⡰" "⢎⡡" "⢎⡑" "⢎⠱" "⠎⡱" "⢊⡱" "⢌⡱" "⢆⡱"))
                         ('wide '("░   " "░░  " "░░░ " "░░░░" "░░░ " "░░  " "░   " "    "))
-                        ((pred stringp) (list agent-shell-busy-indicator-frames))
-                        ((pred listp) agent-shell-busy-indicator-frames)
+                        ((and (pred stringp) frame) (list frame))
+                        ((and (or (pred listp) (pred vectorp)) frames) frames)
                         (_ '("▁" "▂" "▃" "▄" "▅" "▆" "▇" "█" "▇" "▆" "▅" "▄" "▃" "▂"))))
               (value (map-nested-elt (agent-shell--state) '(:heartbeat :value))))
     (concat " " (seq-elt frames (mod value (length frames))))))
@@ -10471,7 +10482,7 @@ whose frames match those it last drew redraws nothing, so a static
 indicator (see `agent-shell-busy-indicator-frames' and
 `agent-shell-prompt-busy-frames') costs no redisplay while busy.
 
-For example, with both set to \"busy\", a turn redraws on its starting
+For example, with both set to \"(busy)\", a turn redraws on its starting
 tick, its first busy tick and its ending tick, and on none in between."
   (let ((shell-frames nil)
         (viewport-frames nil))

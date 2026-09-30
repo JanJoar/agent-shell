@@ -946,6 +946,18 @@ would otherwise push the marker right."
       (agent-shell-chat-mode-tests--beat 'busy 3)
       (should (equal (agent-shell-chat--busy-frame) "busy")))))
 
+(ert-deftest agent-shell-prompt-busy-frames-accepts-function-test ()
+  "Busy frames can come from a function, returning a string or frames."
+  (agent-shell-chat-mode-tests--with-shell
+    (let ((agent-shell-show-busy-indicator t)
+          (agent-shell-prompt-busy-frames (lambda () "connecting")))
+      (agent-shell-chat-mode-tests--beat 'busy 3)
+      (should (equal (agent-shell-chat--busy-frame) "connecting"))
+      (setq agent-shell-prompt-busy-frames (lambda () '("a" "b")))
+      (should (equal (agent-shell-chat--busy-frame) "b"))
+      (setq agent-shell-prompt-busy-frames #'ignore)
+      (should-not (agent-shell-chat--busy-frame)))))
+
 (ert-deftest agent-shell-chat-live-marker-spaces-wide-frame-test ()
   "A frame wider than a column is followed by a plain space, not aligned.
 It can't fit the body indent, so aligning would leave no space before
