@@ -10990,6 +10990,7 @@ For example:
 
 (defun agent-shell--ensure-transcript-file ()
   "Ensure the transcript file exists, creating it with header if needed.
+Also recreates the file and its directory if deleted mid-session.
 Returns the file path, or nil if disabled."
   (unless (derived-mode-p 'agent-shell-mode)
     (user-error "Not in an agent-shell buffer"))
@@ -11002,6 +11003,7 @@ Returns the file path, or nil if disabled."
                                 "Unknown Agent"))
                 (session-id (map-nested-elt agent-shell--state '(:session :id)))
                 (model-id (map-nested-elt agent-shell--state '(:session :model-id))))
+            (make-directory dir t)
             (write-region
              (format "# Agent Shell Transcript
 

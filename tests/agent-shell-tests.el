@@ -2548,6 +2548,24 @@ driven by a single helper on both paths."
                        size-before))))
       (delete-file file))))
 
+(ert-deftest agent-shell--append-transcript-recreates-deleted-dir-test ()
+  "Recreate the transcript when its directory is deleted mid-session."
+  (let* ((root (make-temp-file "agent-shell-transcript" t))
+         (file (expand-file-name ".agent-shell/transcripts/t.md" root)))
+    (unwind-protect
+        (with-temp-buffer
+          (setq major-mode 'agent-shell-mode)
+          (setq default-directory (file-name-as-directory root))
+          (setq-local agent-shell--transcript-file file)
+          (agent-shell--append-transcript :text "before\n" :file-path file)
+          (delete-directory (expand-file-name ".agent-shell" root) t)
+          (agent-shell--append-transcript :text "after\n" :file-path file)
+          (with-temp-buffer
+            (insert-file-contents file)
+            (should (string-prefix-p "# Agent Shell Transcript" (buffer-string)))
+            (should (string-suffix-p "after\n" (buffer-string)))))
+      (delete-directory root t))))
+
 (ert-deftest agent-shell-mcp-servers-test ()
   "Test `agent-shell-mcp-servers' function normalization."
   ;; Test with nil
