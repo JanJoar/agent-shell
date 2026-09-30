@@ -6863,6 +6863,10 @@ on error."
                     :config-id config-id
                     :value value))
                  (agent-shell--update-header-and-mode-line)
+                 (agent-shell--emit-event
+                  :event 'config-option-update
+                  :data (list (cons :config-options
+                                    (agent-shell--config-options (agent-shell--state)))))
                  (when on-success
                    (funcall on-success)))
    :on-failure (or on-failure
