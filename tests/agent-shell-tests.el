@@ -7498,11 +7498,12 @@ navigate.  Where point is decides it, which
                (lambda (&rest _) t)))
       (should-not (agent-shell--typing-at-prompt-p)))))
 
-(ert-deftest agent-shell--render-deferred-images-test ()
-  "A body ending in image markup renders once the turn is over.
+(ert-deftest agent-shell--render-deferred-markup-test ()
+  "A body ending in image markup or a list item renders once the turn is over.
 
-Streaming holds that markup back in case a `{width=...}\' block is
-still coming, so nothing else would ever render it."
+Streaming holds that markup back in case more of it is still coming
+\(a `{width=...}\' block, the rest of the item's line), so nothing else
+would ever render it."
   (let ((image-file (make-temp-file "agent-shell-test" nil ".svg")))
     (unwind-protect
         (cl-letf (((symbol-function 'display-graphic-p) (lambda (&optional _d) t))
@@ -7512,7 +7513,7 @@ still coming, so nothing else would ever render it."
           (with-temp-buffer
             (insert (format "plot\n\n![alt](%s)" image-file))
             (put-text-property (point-min) (point-max) 'agent-shell-ui-section 'body)
-            (agent-shell--render-deferred-images)
+            (agent-shell--render-deferred-markup)
             (should (equal "plot\n\nalt" (buffer-substring-no-properties
                                           (point-min) (point-max))))
             (should (eq 'image (car-safe (get-text-property (1- (point-max))
@@ -7524,16 +7525,29 @@ still coming, so nothing else would ever render it."
             (insert (format "plot\n\n![alt](%s)" image-file))
             (put-text-property (point-min) (point-max) 'agent-shell-ui-section 'body)
             (put-text-property (point-min) (point-max) 'invisible t)
-            (agent-shell--render-deferred-images)
+            (agent-shell--render-deferred-markup)
             (should (equal "plot\n\nalt" (buffer-substring-no-properties
                                           (point-min) (point-max))))
             (should (eq 'image (car-safe (get-text-property (1- (point-max))
                                                            'display))))
             (should (eq t (get-text-property (1- (point-max)) 'invisible))))
+          ;; A body ending in a list item whose newline never arrived.
+          (let ((agent-shell-markdown-list-bullets '("•")))
+            (with-temp-buffer
+              (insert "Steps:\n\n- First\n- **Last** one")
+              (put-text-property (point-min) (point-max) 'agent-shell-ui-section 'body)
+              (agent-shell--render-markdown)
+              (should (string-suffix-p "- Last one" (buffer-substring-no-properties
+                                                     (point-min) (point-max))))
+              (agent-shell--render-deferred-markup)
+              (should (equal "Steps:\n\n• First\n• Last one"
+                             (buffer-substring-no-properties (point-min) (point-max))))
+              (should (equal "Steps:\n\n- First\n- **Last** one"
+                             (agent-shell-markdown-reconstruct (point-min) (point-max))))))
           ;; Text outside a fragment body is not a shell rendering target.
           (with-temp-buffer
             (insert (format "plot\n\n![alt](%s)" image-file))
-            (agent-shell--render-deferred-images)
+            (agent-shell--render-deferred-markup)
             (should (string-suffix-p (format "![alt](%s)" image-file)
                                      (buffer-substring-no-properties
                                       (point-min) (point-max))))))

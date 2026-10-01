@@ -361,8 +361,9 @@ Pass COMPLETE non-nil when no more text will be appended, so
 markup held back while it could still grow renders now: an image
 ending the text is otherwise left raw in case a `{width=...}'
 block is still streaming in (see
-`agent-shell-markdown--image-attributes-pending-p').  FORCE
-implies it.
+`agent-shell-markdown--image-attributes-pending-p'), and a list
+item on the last line is left raw until its newline arrives.
+FORCE implies it.
 
 RENDER-IMAGES, when non-nil (the default), replaces `![alt](url)'
 markup with displayed images where the URL resolves to an image
@@ -453,7 +454,8 @@ body un-fontified."
          :inline-ranges inline-ranges)
         (agent-shell-markdown--style-dividers :avoid-ranges avoid-ranges)
         (agent-shell-markdown--style-blockquotes :avoid-ranges avoid-ranges)
-        (agent-shell-markdown--style-lists :avoid-ranges avoid-ranges)
+        (agent-shell-markdown--style-lists :avoid-ranges avoid-ranges
+                                           :complete (or force complete))
         (agent-shell-markdown--style-source-blocks
          :highlight-blocks highlight-blocks)
         ;; Tables run last so cell content has already been processed by
@@ -1811,8 +1813,7 @@ matching.")
   "Regexp matching a list-item line anchored at the accessible buffer end.
 Like `agent-shell-markdown--list-item-line-regexp' but ending at `eos'
 instead of a trailing `\\n', with the same groups.  Used for a list item
-on the last line of a narrowed body, whose terminating newline sits just
-outside the narrow.")
+ending text that is complete, so no newline is coming for it.")
 
 (defconst agent-shell-markdown--list-item-pending-regexp
   (rx bol (zero-or-more (any " \t"))
@@ -1938,7 +1939,7 @@ reconstructing to `- [x] Done'."
     (set-marker end nil)
     (set-marker content-end nil)))
 
-(cl-defun agent-shell-markdown--style-lists (&key avoid-ranges)
+(cl-defun agent-shell-markdown--style-lists (&key avoid-ranges complete)
   "Render markdown list lines: bullets, task checkboxes, ordered numbers.
 
 Each `-'/`*'/`+' or `N.' item line (with an explicit trailing
@@ -1948,7 +1949,8 @@ marker replaced by a glyph and gets a base indent, via
 stashed on `agent-shell-markdown-source' so
 `agent-shell-copy-as-markdown' round-trips it; a plain copy yields
 the rendered glyphs.  Lines inside AVOID-RANGES (e.g. fenced code
-blocks) are left untouched.
+blocks) are left untouched.  A list item on the last line, with no
+newline yet, renders only when COMPLETE says no more text is coming.
 
 For example, the buffer:
 
@@ -1974,16 +1976,13 @@ a two-column base indent."
            :marker-start (match-beginning 2)
            :marker-end (match-end 2)
            :content-start (match-end 3)))))
-    ;; A fragment body is rendered under a narrow to its content, so a
-    ;; list item on the last line has its terminating newline just past
-    ;; the narrow (or none yet).  The loop above is newline-anchored, so
-    ;; that last item is never rendered.  Handle it here, but only when a
-    ;; newline actually exists immediately past the narrow: that proves
-    ;; the line is complete rather than a still-streaming frontier (whose
-    ;; marker must stay raw until it is known to be a list item).
-    (when-let* ((narrow-end (point-max))
-                ((save-restriction (widen) (eq (char-after narrow-end) ?\n))))
-      (goto-char narrow-end)
+    ;; The loop above is newline-anchored, so a list item on the last
+    ;; line is left raw: more of it may still stream in.  Render it once
+    ;; COMPLETE says nothing will.  A newline just past a narrowed
+    ;; fragment body is the fragment's padding, not the item's own, so
+    ;; it says nothing about the line being done (issue #867).
+    (when complete
+      (goto-char (point-max))
       (beginning-of-line)
       (when (and (not (get-text-property (point)
                                          'agent-shell-markdown-list-rendered))

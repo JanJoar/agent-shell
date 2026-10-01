@@ -2372,33 +2372,31 @@ Outro"))))
                      "• one\n• two\n")))))
 
 (ert-deftest agent-shell-markdown-list-items-not-split-when-rendered-separately ()
-  ;; Regression: streaming under a body narrow renders a last item early
-  ;; (before its trailing newline arrives), so that newline lands
+  ;; Regression: a complete render under a body narrow renders a last
+  ;; item before its trailing newline arrives, so that newline lands
   ;; untagged between two rendered list lines, splitting the list into
   ;; two runs.  Framing must still treat them as one block and not
   ;; strand a blank between the items.  The body narrow here excludes a
-  ;; trailing newline (as a fragment body does), which is what triggers
-  ;; the early render.
+  ;; trailing newline, as a fragment body does.
   (let ((agent-shell-markdown-list-bullets '("•")))
     (with-temp-buffer
       (insert "- one\n")
       (save-restriction (narrow-to-region (point-min) (1- (point-max)))
-                        (agent-shell-markdown-replace-markup))
+                        (agent-shell-markdown-replace-markup :complete t))
       (goto-char (1- (point-max)))
       (insert "\n- two")
       (save-restriction (narrow-to-region (point-min) (1- (point-max)))
-                        (agent-shell-markdown-replace-markup))
+                        (agent-shell-markdown-replace-markup :complete t))
       (should (equal (substring-no-properties (buffer-string))
                      "• one\n• two\n")))))
 
 (ert-deftest agent-shell-markdown-list-item-not-split-when-line-streams-in-parts ()
-  ;; Regression: a chunk can end mid-item, so the last-line handler
-  ;; renders that item before its whole line has streamed in; its
-  ;; rendered span ends partway through the line and the rest arrives
-  ;; untagged.  Framing must still fold the item's whole line into the
-  ;; block and not strand a blank between it and the next item.  Uses a
-  ;; body narrow (excluding a trailing newline) to trigger the early
-  ;; render, and splits item one mid-line like the real stream did.
+  ;; Regression: a chunk can end mid-item.  Framing must fold the
+  ;; item's whole line into the block once it completes, and not strand
+  ;; a blank between it and the next item, rendered when the stream
+  ;; completes.  Uses a body narrow (excluding a trailing newline), as a
+  ;; fragment body does, and splits item one mid-line like the real
+  ;; stream did.
   (let ((agent-shell-markdown-list-bullets '("•")))
     (with-temp-buffer
       (insert "\n")
@@ -2409,7 +2407,7 @@ Outro"))))
       (goto-char (1- (point-max)))
       (insert "rest)\n- two")
       (save-restriction (narrow-to-region (point-min) (1- (point-max)))
-                        (agent-shell-markdown-replace-markup))
+                        (agent-shell-markdown-replace-markup :complete t))
       (should (equal (substring-no-properties
                       (buffer-substring (point-min) (1- (point-max))))
                      "• one (rest)\n• two")))))
@@ -2472,19 +2470,14 @@ Outro"))))
       (should (equal (substring-no-properties (buffer-string))
                      "intro\n\n• A\n• B\n\nafter\n")))))
 
-(ert-deftest agent-shell-markdown-list-last-line-renders-under-narrow ()
-  ;; Regression: a fragment body is rendered narrowed to its content, so
-  ;; a list item on the last line has its terminating newline just
-  ;; outside the narrow.  The newline-anchored pass would leave that last
-  ;; item raw; it must still render, since a newline exists right past
-  ;; the narrow (the line is complete).
+(ert-deftest agent-shell-markdown-list-last-line-renders-when-complete ()
+  ;; Regression: a response ending in a list item with no newline after
+  ;; it.  The newline-anchored pass leaves that last item raw, so a
+  ;; render marked complete (nothing more is coming) must render it.
   (let ((agent-shell-markdown-list-bullets '("•")))
     (with-temp-buffer
-      (insert "Sources:\n\n- First item\n- Last item\n")
-      (save-restriction
-        ;; Narrow to the body, excluding the last item's trailing newline.
-        (narrow-to-region (point-min) (1- (point-max)))
-        (agent-shell-markdown-replace-markup))
+      (insert "Sources:\n\n- First item\n- Last item")
+      (agent-shell-markdown-replace-markup :complete t)
       (goto-char (point-max))
       (search-backward "Last item")
       (goto-char (line-beginning-position))
@@ -2493,6 +2486,29 @@ Outro"))))
       ;; Source is stashed whole, so copy-as-markdown round-trips.
       (should (equal (get-text-property (point) 'agent-shell-markdown-source)
                      "- Last item")))))
+
+(ert-deftest agent-shell-markdown-list-last-line-raw-under-padded-narrow ()
+  ;; Regression for issue #867: a fragment body is rendered narrowed,
+  ;; with the fragment's padding newlines just past the narrow.  Those
+  ;; say nothing about the body's last line, so an item there stays raw
+  ;; while streaming.  Rendering it early stashed `- **Bold' as its
+  ;; source, and the rest of the line streaming in after was lost from
+  ;; copy-as-markdown.
+  (let ((agent-shell-markdown-list-bullets '("•")))
+    (with-temp-buffer
+      (insert "- **Bold\n\n")
+      (save-restriction
+        (narrow-to-region (point-min) (- (point-max) 2))
+        (agent-shell-markdown-replace-markup)
+        (goto-char (point-min))
+        (should (eq (char-after) ?-))
+        (goto-char (point-max))
+        (insert " lead:** Normal text.\n")
+        (agent-shell-markdown-replace-markup)
+        (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                       "• Bold lead: Normal text.\n"))
+        (should (equal (agent-shell-markdown-reconstruct (point-min) (point-max))
+                       "- **Bold lead:** Normal text.\n"))))))
 
 (ert-deftest agent-shell-markdown-list-last-line-raw-while-streaming ()
   ;; The last line with no newline anywhere after it is a still-streaming

@@ -321,7 +321,7 @@ renderer ignores) and is expected to render markdown in the
 current buffer.  COMPLETE marks a render nothing will be
 appended to, so a renderer holding markup back while it could
 still grow can settle it (see
-`agent-shell--render-deferred-images').
+`agent-shell--render-deferred-markup').
 
 Callers narrow the buffer to the target span
 \(for example, a fragment body or label) before calling, so the function can
@@ -353,7 +353,7 @@ on label spans where images shouldn't appear.
 
 COMPLETE marks a render nothing will be appended to, so markup the
 streaming passes hold back renders now (see
-`agent-shell--render-deferred-images').  Left nil while streaming.
+`agent-shell--render-deferred-markup').  Left nil while streaming.
 
 EXTERNAL-RENDERERS defaults to t.  Pass nil on single-line label
 spans to suppress `agent-shell-markdown-render-functions'.  Those
@@ -375,19 +375,21 @@ cache so downloaded images share `agent-shell-cache-dir'."
              :complete complete
              :image-cache-directory (agent-shell-cache-dir "content"))))
 
-(defun agent-shell--render-deferred-images ()
-  "Render image markup the streaming passes held back, the turn being over.
+(defun agent-shell--render-deferred-markup ()
+  "Render markup the streaming passes held back, the turn being over.
 
 An image whose markup ends the text rendered so far is left raw: a
 `{width=...}' block may still be streaming in behind it, and rendering
 before it lands would strand those attributes as literal text (see
-`agent-shell-markdown--image-attributes-pending-p').  A response ending
-in an image never gets that following chunk, so its markup stays raw
-until a render marked complete comes along.
+`agent-shell-markdown--image-attributes-pending-p').  Likewise a list
+item on the last line, whose newline has not arrived, as the rest of
+its line may still be on its way.  A response ending in either never
+gets that following chunk, so its markup stays raw until a render
+marked complete comes along.
 
 Re-renders, as complete, every fragment body still holding raw image
-markup.  Bodies without any are left untouched, so a turn ending in
-prose costs one scan.
+markup or ending in a raw list item.  Other bodies are left untouched,
+so a turn ending in prose costs one scan.
 
 Collapsed bodies are re-rendered too, unlike while streaming, where
 they are skipped because expanding one renders it.  That later render
@@ -395,7 +397,8 @@ is not marked complete, so skipping them here would leave an image
 ending a folded tool call raw for good.
 
 For example, a body left as \"Here it is\\n\\n![plot](/tmp/plot.png)\"
-ends up showing the image, while a body of prose is untouched."
+ends up showing the image, one ending in \"- Last item\" shows its
+bullet, while a body of prose is untouched."
   (save-excursion
     (goto-char (point-min))
     (let ((inhibit-read-only t)
@@ -404,13 +407,20 @@ ends up showing the image, while a body of prose is untouched."
           (match nil))
       (while (setq match (text-property-search-forward
                           'agent-shell-ui-section 'body #'eq))
-        (when-let* ((start (prop-match-beginning match))
-                    (end (prop-match-end match))
-                    ((save-excursion
-                       (goto-char start)
-                       (re-search-forward regexp end t))))
-          (save-restriction
-            (narrow-to-region start end)
+        (save-restriction
+          (narrow-to-region (prop-match-beginning match)
+                            (prop-match-end match))
+          (when (or (save-excursion
+                      (goto-char (point-min))
+                      (re-search-forward regexp nil t))
+                    ;; A list item whose newline never arrived.
+                    (save-excursion
+                      (goto-char (point-max))
+                      (beginning-of-line)
+                      (and (looking-at-p
+                            agent-shell-markdown--list-item-last-line-regexp)
+                           (not (get-text-property
+                                 (point) 'agent-shell-markdown-list-rendered)))))
             (agent-shell--render-markdown :complete t)))))))
 
 (defcustom agent-shell-confirm-interrupt t
@@ -7855,10 +7865,10 @@ pending-restore state once replay completes."
       ;; running, so fold it like a completed turn.
       (agent-shell--collapse-expanded-activity-group state)
       ;; Replayed history renders through the streaming path, which holds
-      ;; back an image ending a message in case a `{width=...}' block
+      ;; back an image or list item ending a message in case more of it
       ;; follows.  No further notification is coming for it, so render it
       ;; now, as at the end of a live turn.
-      (agent-shell--render-deferred-images)
+      (agent-shell--render-deferred-markup)
       ;; Point followed the narrowed history insertions up above the live
       ;; prompt.  Return it to the input area so the cursor lands where the
       ;; user types (matching pre-early-prompt restore behavior).
@@ -8753,10 +8763,11 @@ reads the buffer's prompt capabilities."
                      (agent-shell-heartbeat-stop
                       :heartbeat (map-elt agent-shell--state :heartbeat))
                      ;; No more chunks are coming, so markup the streaming
-                     ;; passes held back for one (a trailing image) can
-                     ;; render now.  Runs whatever the stop reason: an
-                     ;; interrupted turn leaves the same markup raw.
-                     (agent-shell--render-deferred-images)
+                     ;; passes held back for one (a trailing image or
+                     ;; list item) can render now.  Runs whatever the
+                     ;; stop reason: an interrupted turn leaves the same
+                     ;; markup raw.
+                     (agent-shell--render-deferred-markup)
                      (agent-shell--finish-output :config shell-maker--config
                                                 :success t)
                      (let ((data (list (cons :stop-reason (map-elt acp-response 'stopReason))
