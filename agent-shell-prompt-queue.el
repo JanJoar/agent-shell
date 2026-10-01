@@ -73,12 +73,22 @@ TODO: Remove after 2026-08-28."
            (list (cons :pending-prompts
                        (map-elt agent-shell--state :pending-requests))))))
 
-(cl-defun agent-shell--prompt-queue-process-next ()
-  "Submit all pending prompts from the queue as a single prompt.
+(defcustom agent-shell-prompt-queue-merge t
+  "Whether queued prompts are sent together as a single prompt.
 
 Prompts queued while a turn runs are typically follow-ups to the same
-instruction, so they are joined (separated by blank lines) and sent
-together rather than as one turn each.
+instruction.  When non-nil, they are joined (separated by blank lines)
+and sent as one turn.  When nil, they are sent one turn each, in the
+order they were queued."
+  :type 'boolean
+  :group 'agent-shell)
+
+(cl-defun agent-shell--prompt-queue-process-next ()
+  "Submit the next pending prompt, or all of them merged into one.
+
+Merges every pending prompt into a single prompt when
+`agent-shell-prompt-queue-merge' is non-nil, otherwise takes just the
+first.
 
 For example, given:
 
@@ -90,12 +100,16 @@ submits:
 
   sorted by size
 
-and leaves :pending-prompts empty."
+and leaves :pending-prompts empty.  With merging off, submits
+\"just the filenames\" and leaves (\"sorted by size\") pending."
   (unless (derived-mode-p 'agent-shell-mode)
     (error "Not in a shell"))
   (agent-shell--prompt-queue-migrate)
-  (when-let* ((pending (map-elt agent-shell--state :pending-prompts)))
-    (map-put! agent-shell--state :pending-prompts nil)
+  (when-let* ((pending (map-elt agent-shell--state :pending-prompts))
+              (count (if agent-shell-prompt-queue-merge
+                         (seq-length pending)
+                       1)))
+    (map-put! agent-shell--state :pending-prompts (seq-drop pending count))
     ;; The turn just ended, so the persistent prompt may hold text the user
     ;; started typing and has not submitted.  Submitting the queued prompt
     ;; inserts at `point-max', which would put it ahead of that draft and
@@ -104,7 +118,7 @@ and leaves :pending-prompts empty."
     (let ((draft (and agent-shell-persistent-prompt-enabled
                       (agent-shell--take-prompt-input))))
       (agent-shell--insert-to-shell-buffer
-       :text (string-join pending "\n\n")
+       :text (string-join (seq-take pending count) "\n\n")
        :submit t
        :no-focus t)
       (when draft
@@ -392,9 +406,9 @@ Read PROMPT from the minibuffer and act on the current project's shell,
 resolving it via `agent-shell--shell-buffer' so this works even when
 invoked outside a shell buffer.  If the shell is busy, add PROMPT to the
 pending prompts queue.  Otherwise, submit it immediately.  Queued prompts
-are automatically sent, merged into a single prompt, when the current
-prompt completes.  When it is cancelled instead, you are asked whether to
-continue with them.
+are automatically sent when the current prompt completes, merged into a
+single prompt unless `agent-shell-prompt-queue-merge' is nil.  When it is
+cancelled instead, you are asked whether to continue with them.
 
 Always queues, ignoring `agent-shell-busy-submit-default-function'.
 

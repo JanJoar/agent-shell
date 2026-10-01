@@ -6968,6 +6968,26 @@ and its value returned."
             :busy t)
            (list "just the filenames\n\nsorted by size" nil))))
 
+(ert-deftest agent-shell--prompt-queue-process-next-without-merge-test ()
+  "With merging off, only the first queued prompt is submitted."
+  (should (equal
+           (agent-shell-tests--with-persistent-prompt-shell
+            (lambda ()
+              (insert "just the filenames")
+              (agent-shell-submit)
+              (insert "sorted by size")
+              (agent-shell-submit)
+              (let ((submitted nil)
+                    (agent-shell-prompt-queue-merge nil))
+                (cl-letf (((symbol-function 'agent-shell--insert-to-shell-buffer)
+                           (lambda (&rest args)
+                             (setq submitted (plist-get args :text)))))
+                  (agent-shell--prompt-queue-process-next))
+                (list submitted
+                      (map-elt agent-shell--state :pending-prompts))))
+            :busy t)
+           (list "just the filenames" '("sorted by size")))))
+
 (ert-deftest agent-shell--prompt-queue-summary-test ()
   "Pending prompts are listed by first line, numbered, under their count."
   (let ((agent-shell--state (list (cons :pending-prompts
