@@ -10993,9 +10993,11 @@ For example:
        nil))))
 
 (defun agent-shell--ensure-transcript-file ()
-  "Ensure the transcript file exists, creating it with header if needed.
-Also recreates the file and its directory if deleted mid-session.
-Returns the file path, or nil if disabled."
+  "Return the transcript file path, creating it with header if needed.
+
+Also recreates the file and its directory if deleted mid-session, as
+long as the shell's working directory still exists.  On failure,
+disable the transcript for this shell and return nil."
   (unless (derived-mode-p 'agent-shell-mode)
     (user-error "Not in an agent-shell buffer"))
   (when-let* ((filepath agent-shell--transcript-file)
@@ -11007,6 +11009,8 @@ Returns the file path, or nil if disabled."
                                 "Unknown Agent"))
                 (session-id (map-nested-elt agent-shell--state '(:session :id)))
                 (model-id (map-nested-elt agent-shell--state '(:session :model-id))))
+            (unless (file-directory-p (agent-shell-cwd))
+              (error "%s no longer exists" (agent-shell-cwd)))
             (make-directory dir t)
             (write-region
              (format "# Agent Shell Transcript
@@ -11031,8 +11035,9 @@ Returns the file path, or nil if disabled."
             (message "Created %s"
                      (agent-shell--shorten-paths filepath t)))
         (error
-         (message "Failed to initialize transcript: %S" err))))
-    filepath))
+         (setq-local agent-shell--transcript-file nil)
+         (message "Transcript disabled: %s" (error-message-string err)))))
+    agent-shell--transcript-file))
 
 (defun agent-shell--indent-markdown-headers (text)
   "Indent markdown headers in TEXT by 2 levels for transcript hierarchy.
@@ -11079,7 +11084,8 @@ For example:
     (condition-case err
         (write-region text nil file-path t 'no-message)
       (error
-       (message "Error writing to transcript: %S" err)))))
+       (setq-local agent-shell--transcript-file nil)
+       (message "Transcript disabled: %s" (error-message-string err))))))
 
 (cl-defun agent-shell--separate-transcript-after-agent-message (&key last-entry-type file-path)
   "Append a blank-line separator to the transcript at FILE-PATH.

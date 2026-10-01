@@ -2594,6 +2594,31 @@ driven by a single helper on both paths."
             (should (string-suffix-p "after\n" (buffer-string)))))
       (delete-directory root t))))
 
+(ert-deftest agent-shell--append-transcript-disables-when-project-deleted-test ()
+  "Disable the transcript with a single message when the project is deleted."
+  (let* ((root (make-temp-file "agent-shell-transcript" t))
+         (file (expand-file-name ".agent-shell/transcripts/t.md" root))
+         (messages nil))
+    (unwind-protect
+        (with-temp-buffer
+          (setq major-mode 'agent-shell-mode)
+          (setq default-directory (file-name-as-directory root))
+          (setq-local agent-shell--transcript-file file)
+          (agent-shell--append-transcript :text "before\n"
+                                          :file-path agent-shell--transcript-file)
+          (delete-directory root t)
+          (cl-letf (((symbol-function 'message)
+                     (lambda (&rest args) (push (apply #'format args) messages))))
+            (dotimes (_ 3)
+              (agent-shell--append-transcript :text "after\n"
+                                              :file-path agent-shell--transcript-file)))
+          (should-not agent-shell--transcript-file)
+          (should-not (file-exists-p root))
+          (should (= (length messages) 1))
+          (should (string-prefix-p "Transcript disabled:" (car messages))))
+      (when (file-exists-p root)
+        (delete-directory root t)))))
+
 (ert-deftest agent-shell-mcp-servers-test ()
   "Test `agent-shell-mcp-servers' function normalization."
   ;; Test with nil
