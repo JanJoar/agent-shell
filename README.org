@@ -865,6 +865,29 @@ configurations across every agent that you use.
            (url . "https://mcp.notion.com/mcp"))))
 #+end_src
 
+*** Monitoring events
+
+You can subscribe to shell events (turn complete, tool calls, config changes, etc.) via =agent-shell-subscribe-to=. See its docstring (=C-h f agent-shell-subscribe-to=) for the full list of events and their data.
+
+For example, to have new OpenCode shells remember the last model and effort level chosen (within your Emacs session):
+
+#+begin_src emacs-lisp
+  (add-hook 'agent-shell-mode-hook
+            (lambda ()
+              (agent-shell-subscribe-to
+               :shell-buffer (current-buffer)
+               :event 'config-option-update
+               :on-event
+               (lambda (event)
+                 (pcase (map-elt (agent-shell-get-config (current-buffer)) :identifier)
+                   ('opencode
+                    (setq agent-shell-opencode-default-config-options
+                          (seq-map (lambda (option)
+                                     (cons (map-elt option :id)
+                                           (map-elt option :current-value)))
+                                   (map-nested-elt event '(:data :config-options))))))))))
+#+end_src
+
 ** Running agents in Devcontainers / Docker containers (Experimental)
 
 =agent-shell= provides rudimentary support for running agents and shell commands in containers.
