@@ -111,8 +111,44 @@ and leaves :pending-prompts empty."
         (goto-char (point-max))
         (insert draft)))))
 
-(defun agent-shell--prompt-queue-display ()
-  "Display pending prompts in the shell buffer if queue is not empty."
+(defun agent-shell--prompt-queue-summary ()
+  "Return the pending prompts as a numbered list, headed by their count.
+
+Each prompt is shown by its first line, truncated to 80 columns.
+
+For example, given:
+
+  :pending-prompts (\"just the filenames\" \"sorted by size\")
+
+returns:
+
+  Pending prompts: 2
+
+    1: \"just the filenames\"
+    2: \"sorted by size\""
+  (agent-shell--prompt-queue-migrate)
+  (format "Pending prompts: %d
+
+%s"
+          (seq-length (map-elt agent-shell--state :pending-prompts))
+          (mapconcat
+           (lambda (idx-prompt)
+             (let ((idx (cdr idx-prompt))
+                   (first-line (car (split-string
+                                     (substring-no-properties (car idx-prompt))
+                                     "\n" t))))
+               (format "  %d: \"%s\""
+                       (1+ idx)
+                       (truncate-string-to-width first-line 80 nil nil "..."))))
+           (seq-map-indexed #'cons (map-elt agent-shell--state :pending-prompts))
+           "\n")))
+
+(cl-defun agent-shell--prompt-queue-display (&key skip-summary)
+  "Display how to manage pending prompts in the shell buffer, if any.
+
+Lists the pending prompts (see `agent-shell--prompt-queue-summary') ahead
+of the commands to resume or remove them, unless SKIP-SUMMARY is non-nil
+because the user has just seen that list elsewhere."
   (unless (derived-mode-p 'agent-shell-mode)
     (error "Not in a shell"))
   (agent-shell--prompt-queue-migrate)
@@ -121,26 +157,13 @@ and leaves :pending-prompts empty."
      :state (agent-shell--state)
      :block-id (format "%s-pending-prompts"
                        (map-elt (agent-shell--state) :request-count))
-     :body (format "Pending prompts: %d
-
-%s
-
-Resume: M-x agent-shell-prompt-queue-resume
+     :body (concat (unless skip-summary
+                     (concat (agent-shell--prompt-queue-summary) "\n\n"))
+                   "Resume: M-x agent-shell-prompt-queue-resume
 Remove: M-x agent-shell-prompt-queue-remove
-"
-                   (seq-length (map-elt agent-shell--state :pending-prompts))
-                   (mapconcat
-                    (lambda (idx-prompt)
-                      (let ((idx (cdr idx-prompt))
-                            (first-line (car (split-string
-                                              (substring-no-properties (car idx-prompt))
-                                              "\n" t))))
-                        (format "  %d: \"%s\""
-                                (1+ idx)
-                                (truncate-string-to-width first-line 80 nil nil "..."))))
-                    (seq-map-indexed #'cons (map-elt agent-shell--state :pending-prompts))
-                    "\n"))
-     :create-new t)))
+")
+     :create-new t
+     :above-last-prompt (not (shell-maker-busy)))))
 
 (cl-defun agent-shell--prompt-queue-echo (&key active-prompt pending-prompts)
   "Message the in-progress prompt and PENDING-PROMPTS to the echo area.
@@ -370,7 +393,8 @@ resolving it via `agent-shell--shell-buffer' so this works even when
 invoked outside a shell buffer.  If the shell is busy, add PROMPT to the
 pending prompts queue.  Otherwise, submit it immediately.  Queued prompts
 are automatically sent, merged into a single prompt, when the current
-prompt completes or is cancelled.
+prompt completes.  When it is cancelled instead, you are asked whether to
+continue with them.
 
 Always queues, ignoring `agent-shell-busy-submit-default-function'.
 

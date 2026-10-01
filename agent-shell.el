@@ -8731,9 +8731,7 @@ reads the buffer's prompt capabilities."
                    (when (map-elt acp-response 'usage)
                      (agent-shell--save-usage :state (agent-shell--state) :acp-usage (map-elt acp-response 'usage)))
                    (let ((success (equal (map-elt acp-response 'stopReason)
-                                         "end_turn"))
-                         (cancelled (equal (map-elt acp-response 'stopReason)
-                                           "cancelled")))
+                                         "end_turn")))
                      ;; Display usage box at end of turn if enabled and data available
                      (when (and success
                                 agent-shell-show-usage-at-turn-end
@@ -8754,8 +8752,6 @@ reads the buffer's prompt capabilities."
                         :create-new t))
                      (agent-shell-heartbeat-stop
                       :heartbeat (map-elt agent-shell--state :heartbeat))
-                     (unless (or success cancelled)
-                       (agent-shell--prompt-queue-display))
                      ;; No more chunks are coming, so markup the streaming
                      ;; passes held back for one (a trailing image) can
                      ;; render now.  Runs whatever the stop reason: an
@@ -8775,8 +8771,19 @@ reads the buffer's prompt capabilities."
                                                    :existing-only t)))
                        (with-current-buffer viewport-buffer
                          (agent-shell-viewport--update-header)))
-                     (when (or success cancelled)
-                       (agent-shell--prompt-queue-process-next))))
+                     (cond
+                      (success
+                       (agent-shell--prompt-queue-process-next))
+                      ((not (equal (map-elt acp-response 'stopReason) "cancelled"))
+                       (agent-shell--prompt-queue-display))
+                      ;; Cancelled with nothing queued: nothing to ask.
+                      ((not (map-elt (agent-shell--state) :pending-prompts)))
+                      ((y-or-n-p (format "%s
+
+Continue?" (agent-shell--prompt-queue-summary)))
+                       (agent-shell--prompt-queue-process-next))
+                      (t
+                       (agent-shell--prompt-queue-display :skip-summary t)))))
      :on-failure (lambda (acp-error raw-message)
                    ;; A failed/interrupted turn may have stopped mid
                    ;; agent_message_chunk, leaving the transcript body

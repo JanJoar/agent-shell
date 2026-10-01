@@ -1089,37 +1089,48 @@ The fallback triggers when `agent-shell--build-content-blocks' fails."
         (should (equal (map-elt (map-elt data :usage) :total-tokens)
                        1500))))))
 
-(ert-deftest agent-shell--send-command-drains-queue-on-cancel-test ()
-  "Test a cancelled turn moves on to the queued prompts."
-  (let ((captured-on-success nil)
-        (processed nil)
-        (agent-shell--state (list (cons :buffer (current-buffer))
-                                  (cons :event-subscriptions nil)
-                                  (cons :client 'test-client)
-                                  (cons :session (list (cons :id "test-session") (cons :title nil)))
-                                  (cons :last-entry-type nil)
-                                  (cons :tool-calls nil)
-                                  (cons :usage (list (cons :total-tokens 0)))
-                                  (cons :idle-timer nil)))
-        (agent-shell-show-busy-indicator nil)
-        (agent-shell-show-usage-at-turn-end nil))
-    (cl-letf (((symbol-function 'agent-shell--state)
-               (lambda () agent-shell--state))
-              ((symbol-function 'agent-shell--send-request)
-               (lambda (&rest args)
-                 (setq captured-on-success (plist-get args :on-success))))
-              ((symbol-function 'agent-shell--finish-output)
-               (lambda (&rest _)))
-              ((symbol-function 'agent-shell--update-fragment)
-               (lambda (&rest _)))
-              ((symbol-function 'agent-shell--prompt-queue-process-next)
-               (lambda (&rest _) (setq processed t))))
-      (agent-shell--send-command
-       :prompt "Hello"
-       :shell-buffer (current-buffer))
-      (should captured-on-success)
-      (funcall captured-on-success '((stopReason . "cancelled")))
-      (should processed))))
+(ert-deftest agent-shell--send-command-asks-to-drain-queue-on-cancel-test ()
+  "Test a cancelled turn moves on to the queued prompts only if confirmed.
+
+Declining shows how to manage the prompts left queued, without listing
+them again: the question already did."
+  (dolist (answer '(t nil))
+    (let ((captured-on-success nil)
+          (processed nil)
+          (displayed nil)
+          (agent-shell--state (list (cons :buffer (current-buffer))
+                                    (cons :event-subscriptions nil)
+                                    (cons :client 'test-client)
+                                    (cons :session (list (cons :id "test-session") (cons :title nil)))
+                                    (cons :last-entry-type nil)
+                                    (cons :tool-calls nil)
+                                    (cons :pending-prompts (list "sorted by size"))
+                                    (cons :usage (list (cons :total-tokens 0)))
+                                    (cons :idle-timer nil)))
+          (agent-shell-show-busy-indicator nil)
+          (agent-shell-show-usage-at-turn-end nil))
+      (cl-letf (((symbol-function 'agent-shell--state)
+                 (lambda () agent-shell--state))
+                ((symbol-function 'agent-shell--send-request)
+                 (lambda (&rest args)
+                   (setq captured-on-success (plist-get args :on-success))))
+                ((symbol-function 'agent-shell--finish-output)
+                 (lambda (&rest _)))
+                ((symbol-function 'agent-shell--update-fragment)
+                 (lambda (&rest _)))
+                ((symbol-function 'agent-shell--prompt-queue-display)
+                 (lambda (&rest args) (setq displayed args)))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (&rest _) answer))
+                ((symbol-function 'agent-shell--prompt-queue-process-next)
+                 (lambda (&rest _) (setq processed t))))
+        (agent-shell--send-command
+         :prompt "Hello"
+         :shell-buffer (current-buffer))
+        (should captured-on-success)
+        (funcall captured-on-success '((stopReason . "cancelled")))
+        (should (eq processed answer))
+        (should (equal displayed (unless answer '(:skip-summary t))))))))
 
 (ert-deftest agent-shell--send-command-emits-input-submitted-with-prompt-test ()
   "Test `input-submitted' carries the expanded prompt text."
@@ -6956,6 +6967,17 @@ and its value returned."
                       (map-elt agent-shell--state :pending-prompts))))
             :busy t)
            (list "just the filenames\n\nsorted by size" nil))))
+
+(ert-deftest agent-shell--prompt-queue-summary-test ()
+  "Pending prompts are listed by first line, numbered, under their count."
+  (let ((agent-shell--state (list (cons :pending-prompts
+                                        (list "just the filenames\nno paths"
+                                              "sorted by size")))))
+    (should (equal (agent-shell--prompt-queue-summary)
+                   "Pending prompts: 2
+
+  1: \"just the filenames\"
+  2: \"sorted by size\""))))
 
 (ert-deftest agent-shell-queued-image-keeps-preview-test ()
   "A pasted image keeps its preview through busy queueing and submission."
