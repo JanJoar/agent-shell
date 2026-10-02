@@ -382,14 +382,14 @@ An image whose markup ends the text rendered so far is left raw: a
 `{width=...}' block may still be streaming in behind it, and rendering
 before it lands would strand those attributes as literal text (see
 `agent-shell-markdown--image-attributes-pending-p').  Likewise a list
-item on the last line, whose newline has not arrived, as the rest of
-its line may still be on its way.  A response ending in either never
-gets that following chunk, so its markup stays raw until a render
-marked complete comes along.
+item or table row on the last line, whose newline has not arrived, as
+the rest of its line may still be on its way.  A response ending in
+any of these never gets that following chunk, so its markup stays raw
+until a render marked complete comes along.
 
 Re-renders, as complete, every fragment body still holding raw image
-markup or ending in a raw list item.  Other bodies are left untouched,
-so a turn ending in prose costs one scan.
+markup or ending in a raw list item or table row.  Other bodies are
+left untouched, so a turn ending in prose costs one scan.
 
 Collapsed bodies are re-rendered too, unlike while streaming, where
 they are skipped because expanding one renders it.  That later render
@@ -420,7 +420,18 @@ bullet, while a body of prose is untouched."
                       (and (looking-at-p
                             agent-shell-markdown--list-item-last-line-regexp)
                            (not (get-text-property
-                                 (point) 'agent-shell-markdown-list-rendered)))))
+                                 (point) 'agent-shell-markdown-list-rendered))))
+                    ;; A table row whose newline never arrived, either
+                    ;; a whole raw row or the rest of a rendered one.
+                    (save-excursion
+                      (goto-char (point-max))
+                      (beginning-of-line)
+                      (or (looking-at-p agent-shell-markdown--table-line-regexp)
+                          (and (get-text-property
+                                (point) 'agent-shell-markdown-table-source)
+                               (not (get-text-property
+                                     (1- (point-max))
+                                     'agent-shell-markdown-table-source))))))
             (agent-shell--render-markdown :complete t)))))))
 
 (defcustom agent-shell-confirm-interrupt t
@@ -5201,8 +5212,11 @@ with GROUP-EXPANDED as the group's initial fold state."
               (when-let* ((label-right-start (map-nested-elt range '(:label-right :start)))
                           (label-right-end (map-nested-elt range '(:label-right :end))))
                 (narrow-to-region label-right-start label-right-end)
+                ;; Labels are replaced whole, never appended to, so
+                ;; nothing more is coming.
                 (agent-shell--render-markdown :render-images nil
-                                              :external-renderers nil))))
+                                              :external-renderers nil
+                                              :complete t))))
           (when auto-scroll
             (goto-char (point-max)))))))
   (with-current-buffer (map-elt state :buffer)
@@ -5284,8 +5298,11 @@ with GROUP-EXPANDED as the group's initial fold state."
              (when-let* ((label-right-start (map-nested-elt range '(:label-right :start)))
                          (label-right-end (map-nested-elt range '(:label-right :end))))
                (narrow-to-region label-right-start label-right-end)
+               ;; Labels are replaced whole, never appended to, so
+               ;; nothing more is coming.
                (agent-shell--render-markdown :render-images nil
-                                             :external-renderers nil)
+                                             :external-renderers nil
+                                             :complete t)
                (widen))))
          (run-hook-with-args 'agent-shell-section-functions range))))
       ;; Late-arrival inserts run under a narrow that ends at

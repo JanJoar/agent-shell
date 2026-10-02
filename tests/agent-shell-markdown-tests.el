@@ -2199,7 +2199,7 @@ Outro"))))
   ;; no framing blank line is added at the buffer edges.
   (with-temp-buffer
     (insert "| a | b |\n|---|---|\n| 1 | 2 |")
-    (agent-shell-markdown-replace-markup)
+    (agent-shell-markdown-replace-markup :complete t)
     (should (equal (substring-no-properties (buffer-string))
                    "│ a │ b │
 ├───┼───┤
@@ -3053,12 +3053,17 @@ returns (agent-shell-markdown-table agent-shell-markdown-table-zebra)."
   ;; The header, border and zebra faces all resolve through
   ;; `agent-shell-markdown-table', which is what lets a face-remapping
   ;; setup pin a whole table by naming that one face.  It comes last in
-  ;; each inherit list, so a face's own styling still wins.
+  ;; the header and zebra inherit lists, so their own styling still
+  ;; wins, but first in the border's, so a font a theme sets on
+  ;; `font-lock-comment-face' can't size borders apart from the cells
+  ;; (issue #868).
   (dolist (face '(agent-shell-markdown-table-header
-                  agent-shell-markdown-table-border
                   agent-shell-markdown-table-zebra))
     (should (equal (seq-drop (face-attribute face :inherit) 1)
-                   '(agent-shell-markdown-table)))))
+                   '(agent-shell-markdown-table))))
+  (should (equal (car (face-attribute 'agent-shell-markdown-table-border
+                                      :inherit))
+                 'agent-shell-markdown-table)))
 
 (ert-deftest agent-shell-markdown-table-sizes-against-destination-window ()
   ;; Regression: column allocation must size against the table's
@@ -3147,6 +3152,45 @@ returns (agent-shell-markdown-table agent-shell-markdown-table-zebra)."
 │ 2 │ Bob   │ Designer │ UK      │ Historical │
 "))))
 
+(ert-deftest agent-shell-markdown-table-styles-markup-split-across-row-chunks ()
+  ;; A chunk ending at a cell's `|' (`| Commit |') looks like a whole
+  ;; row.  Rendering it then would commit the rest of the row as raw
+  ;; continuation chunks, so a link or inline code split across two of
+  ;; them would never be styled and its raw markup would widen the
+  ;; column (issue #868).
+  (dolist (chunks '(("| A | B |\n|---|---|\n| x | y |\n| Commit |"
+                     " [abc" "](https://github.com/x" "yz) |\n")
+                    ("| A | B |\n|---|---|\n| x | y |\n| Code |"
+                     " `(require 'init-org" ")` |\n")))
+    (with-temp-buffer
+      (dolist (chunk chunks)
+        (goto-char (point-max))
+        (insert chunk)
+        (agent-shell-markdown-replace-markup))
+      (should (equal (substring-no-properties (buffer-string))
+                     (with-temp-buffer
+                       (insert (apply #'concat chunks))
+                       (agent-shell-markdown-replace-markup)
+                       (substring-no-properties (buffer-string))))))))
+
+(ert-deftest agent-shell-markdown-table-keeps-styling-refontified-while-pending ()
+  ;; A row styled while it waits for its newline can be re-fontified
+  ;; before it folds into the table, clearing `face' and leaving only
+  ;; the mirrored `font-lock-face'.  The table must still pick up the
+  ;; styling (issue #868).
+  (with-temp-buffer
+    (dolist (chunk '("| A | B |\n|---|---|\n| x | y |\n| S |" " ~~old~~ |" "\n"))
+      (goto-char (point-max))
+      (insert chunk)
+      (agent-shell-markdown-replace-markup)
+      ;; What re-fontification does to `face' between chunks.
+      (remove-text-properties (point-min) (point-max) '(face nil)))
+    (goto-char (point-min))
+    (search-forward "old")
+    (should (memq 'agent-shell-markdown-strikethrough
+                  (ensure-list (get-text-property (match-beginning 0)
+                                                  'font-lock-face))))))
+
 (ert-deftest agent-shell-markdown-table-inside-open-fence-stays-raw ()
   ;; A table inside a fenced block whose closing fence hasn't
   ;; streamed in yet must NOT get table-rendered.  Otherwise the
@@ -3167,9 +3211,10 @@ returns (agent-shell-markdown-table agent-shell-markdown-table-zebra)."
     (should-not (string-match-p "│" (buffer-string)))))
 
 (ert-deftest agent-shell-markdown-table-renders-final-row-without-trailing-newline ()
-  ;; A complete table whose last row isn't terminated by `\n' (e.g.
-  ;; the final chunk of a streaming response) must still render —
-  ;; callers like agent-shell narrow to the body section, which
+  ;; A table whose last row isn't terminated by `\n' (e.g. the final
+  ;; chunk of a streaming response) leaves that row raw while more
+  ;; text may follow, and renders it once the render is complete.
+  ;; Callers like agent-shell narrow to the body section, which
   ;; excludes the trailing `\n', so even when streaming has stopped
   ;; the row would appear unterminated within the narrow.
   (with-temp-buffer
@@ -3178,6 +3223,12 @@ returns (agent-shell-markdown-table agent-shell-markdown-table-zebra)."
 | Alice | 28 |
 | Bob | 35 |")
     (agent-shell-markdown-replace-markup)
+    (should (equal (substring-no-properties (buffer-string))
+                   "│ Name  │ Age │
+├───────┼─────┤
+│ Alice │ 28  │
+| Bob | 35 |"))
+    (agent-shell-markdown-replace-markup :complete t)
     (should (equal (substring-no-properties (buffer-string))
                    "│ Name  │ Age │
 ├───────┼─────┤
