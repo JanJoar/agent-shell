@@ -2323,6 +2323,36 @@ fast: requesting on... done"))
       (funcall success-callback nil)
       (should (equal (agent-shell--current-model-id state) "gpt-5.5")))))
 
+(ert-deftest agent-shell--make-transcript-frontmatter-test ()
+  "Test `agent-shell--make-transcript-frontmatter' function."
+  ;; All fields present.
+  (should (equal (agent-shell--make-transcript-frontmatter
+                  (list (cons "agent" "\"Claude\"")
+                        (cons "started" "2025-11-02T18:17:41-05:00")
+                        (cons "working_directory" "\"/home/user/project/\"")
+                        (cons "session_id" "\"eb5b6105\"")
+                        (cons "model" "\"opus\"")))
+                 "---
+agent: \"Claude\"
+started: 2025-11-02T18:17:41-05:00
+working_directory: \"/home/user/project/\"
+session_id: \"eb5b6105\"
+model: \"opus\"
+---
+
+"))
+  ;; Nil entries are skipped, so optional fields omit their key entirely
+  ;; rather than emitting an empty value.
+  (should (equal (agent-shell--make-transcript-frontmatter
+                  (list (cons "agent" "\"Claude\"")
+                        (when nil (cons "session_id" "\"eb5b6105\""))
+                        (when nil (cons "model" "\"opus\""))))
+                 "---
+agent: \"Claude\"
+---
+
+")))
+
 (ert-deftest agent-shell--make-transcript-tool-call-entry-test ()
   "Test `agent-shell--make-transcript-tool-call-entry' function."
   ;; Mock format-time-string to return a predictable value
