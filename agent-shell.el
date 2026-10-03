@@ -2901,12 +2901,36 @@ capitalize as needed.
             (if (= count 1) "a" (number-to-string count))
             (map-elt phrase (if (= count 1) :singular :plural)))))
 
+(defun agent-shell--raw-input-file-path (raw-input)
+  "Return the first non-empty file path in RAW-INPUT, or nil.
+For example, ((file_path . \"a.el\")) returns \"a.el\"."
+  (seq-find (lambda (path) (and (stringp path) (not (string-empty-p path))))
+            (seq-map (lambda (key) (map-elt raw-input key))
+                     '(filepath fileName path file_path))))
+
+(defun agent-shell--tool-call-file-paths (tool-call)
+  "Return file paths reported by TOOL-CALL, or nil if unavailable.
+For example, two diffs for \"a.el\" return (\"a.el\" \"a.el\")."
+  (let ((valid-path (lambda (path)
+                      (and (stringp path) (not (string-empty-p path))))))
+    (or (seq-filter valid-path
+                    (seq-map (lambda (diff) (map-elt diff :file))
+                             (map-elt tool-call :diffs)))
+        (seq-filter valid-path
+                    (seq-map (lambda (location) (map-elt location 'path))
+                             (map-elt tool-call :locations)))
+        (when-let* ((path (agent-shell--raw-input-file-path
+                          (map-elt tool-call :raw-input))))
+          (list path)))))
+
 (cl-defun agent-shell--activity-group-descriptive-text (&key members thought)
   "Return a Claude Code style summary phrase for MEMBERS.
 
 MEMBERS is a list of (ID . TOOL-CALL) pairs in call order.  Kinds are
 collapsed into counted phrases joined by commas, e.g. \"Ran 3 commands,
 read a file\", in first-seen order.  Only the first word is capitalized.
+Reads, edits, and deletes count distinct reported file paths when all
+calls of that kind report paths; otherwise they retain the call count.
 A kind reads in the present tense (\"Run a command\") while any of its
 members is still pending or in progress, past tense once all have
 finished.
@@ -2924,16 +2948,23 @@ Thoughts are not counted."
          (tool-phrases
           (seq-map
            (lambda (kind)
-             (let ((of-kind (seq-filter (lambda (member)
+             (let* ((of-kind (seq-filter (lambda (member)
                                           (equal (funcall member-kind member) kind))
-                                        tool-members)))
+                                        tool-members))
+                    (pending (seq-some (lambda (member)
+                                         (member (map-elt (cdr member) :status)
+                                                 '("pending" "in_progress")))
+                                       of-kind))
+                    (paths (when (member kind '("read" "edit" "delete"))
+                             (seq-map (lambda (member)
+                                        (agent-shell--tool-call-file-paths (cdr member)))
+                                      of-kind))))
                (agent-shell--tool-call-kind-phrase
                 :kind kind
-                :count (length of-kind)
-                :pending (seq-some (lambda (member)
-                                     (member (map-elt (cdr member) :status)
-                                             '("pending" "in_progress")))
-                                   of-kind))))
+                :count (if (and paths (not (memq nil paths)))
+                           (length (seq-uniq (apply #'append paths)))
+                         (length of-kind))
+                :pending pending)))
            (seq-uniq (seq-map member-kind tool-members))))
          (summary (string-join (if thought (cons "thought" tool-phrases) tool-phrases)
                                ", ")))
@@ -3205,6 +3236,7 @@ Clears STATE's `:expanded-activity-group'."
                                           (map-nested-elt acp-notification '(params update rawInput command))))
                           (cons :description (map-nested-elt acp-notification '(params update rawInput description)))
                           (cons :content (map-nested-elt acp-notification '(params update content)))
+                          (cons :locations (map-nested-elt acp-notification '(params update locations)))
                           (cons :raw-input (map-nested-elt acp-notification '(params update rawInput))))
                     (when-let* ((diffs (agent-shell--make-diff-infos
                                         :acp-tool-call (map-nested-elt acp-notification '(params update)))))
@@ -9350,14 +9382,7 @@ For example:
          (raw-input (map-elt tool-call :raw-input))
          (command (agent-shell--tool-call-command-to-string
                    (map-elt raw-input 'command)))
-         ;; Some tools put a non-string under `path' (e.g. an HTTP API's
-         ;; path params), so pick the first string, like the `locations'
-         ;; paths guard below.
-         (filepath (seq-find #'stringp
-                             (list (map-elt raw-input 'filepath)
-                                   (map-elt raw-input 'fileName)
-                                   (map-elt raw-input 'path)
-                                   (map-elt raw-input 'file_path))))
+         (filepath (agent-shell--raw-input-file-path raw-input))
          ;; Fetch tools (eg. OpenCode's webfetch) put the target URL
          ;; under `url'.  Surface it in full below, since the basename
          ;; alone isn't enough to decide whether to allow the request.

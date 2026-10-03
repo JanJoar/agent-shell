@@ -6454,6 +6454,97 @@ tense while any member is still unfinished."
     ;; A `think'-kind call and a thought chunk still read a single "Thought".
     (should (equal "Thought" (text (list (tc "a" "think" "completed")) t)))))
 
+(ert-deftest agent-shell--initial-tool-call-locations-test ()
+  "Count files from locations in the initial tool notification."
+  (let ((state (agent-shell--make-state
+                :agent-config (agent-shell-make-agent-config :identifier 'test))))
+    (cl-letf (((symbol-function 'agent-shell--update-fragment) #'ignore)
+              ((symbol-function 'agent-shell--emit-event) #'ignore)
+              ((symbol-function 'agent-shell-make-tool-call-label) #'ignore)
+              ((symbol-function 'agent-shell--cancel-idle-timer) #'ignore)
+              ((symbol-function 'agent-shell--active-requests-p) (lambda (_) t))
+              ((symbol-function 'agent-shell--sync-activity-group-fold) #'ignore))
+      (agent-shell--on-notification
+       :state state
+       :acp-notification '((method . "session/update")
+                           (params
+                            (update
+                             (sessionUpdate . "tool_call")
+                             (toolCallId . "read-1")
+                             (title . "Read files")
+                             (kind . "read")
+                             (status . "completed")
+                             (locations . [((path . "a.el")) ((path . "b.el"))]))))))
+    (should (equal "Read 2 files"
+                   (agent-shell--activity-group-descriptive-text
+                    :members (map-elt state :tool-calls))))))
+
+(ert-deftest agent-shell--tool-call-file-paths-test ()
+  "Ignore invalid paths and fall back to another reported source."
+  (should (equal '("a.el")
+                 (agent-shell--tool-call-file-paths
+                  '((:diffs . (((:file . "")) ((:file . 42))))
+                    (:locations . [((path . "")) ((path . 42)) ((path . "a.el"))])))))
+  (should (equal '("b.el")
+                 (agent-shell--tool-call-file-paths
+                  '((:locations . [((path . "")) ((path . 42))])
+                    (:raw-input . ((path . "") (file_path . "b.el")))))))
+  (should-not (agent-shell--tool-call-file-paths
+               '((:raw-input . ((path . 42) (file_path . ""))))))
+  (dolist (key '(filepath fileName path file_path))
+    (should (equal "a.el" (agent-shell--raw-input-file-path
+                          (list (cons key "a.el")))))))
+
+(ert-deftest agent-shell--activity-group-edit-file-count-test ()
+  "Edit summaries count distinct files and handle missing paths."
+  (let ((call '((:kind . "edit") (:status . "completed")
+                (:diffs . (((:file . "a.el")) ((:file . "b.el")))))))
+    (should (equal "Edited 2 files"
+                   (agent-shell--activity-group-descriptive-text
+                    :members (list (cons "a" call)))))
+    (should (equal "Edited 2 files"
+                   (agent-shell--activity-group-descriptive-text
+                    :members (list (cons "a" call) (cons "b" call)))))
+    (should (equal "Edited a file"
+                   (agent-shell--activity-group-descriptive-text
+                    :members '(("a" . ((:kind . "edit") (:status . "completed")
+                                       (:raw-input . ((file_path . "a.el")))))
+                               ("b" . ((:kind . "edit") (:status . "completed")
+                                       (:locations . (((path . "a.el"))))))))))
+    (should (equal "Edited 2 files"
+                   (agent-shell--activity-group-descriptive-text
+                    :members (list (cons "a" call)
+                                   '("b" . ((:kind . "edit") (:status . "completed")))))))
+    (should (equal "Edit a file"
+                   (agent-shell--activity-group-descriptive-text
+                    :members '(("a" . ((:kind . "edit") (:status . "pending")))))))))
+
+(ert-deftest agent-shell--activity-group-read-delete-file-count-test ()
+  "Reads and deletes count distinct files, falling back to call counts."
+  (dolist (kind '("read" "delete"))
+    (let* ((verb (if (equal kind "read") "Read" "Deleted"))
+           (call (list (cons :kind kind) (cons :status "completed")
+                       '(:locations . [((path . "a.el")) ((path . "b.el"))])))
+           (single (list (cons :kind kind) (cons :status "completed")
+                         '(:raw-input . ((path . "a.el")))))
+           (unknown (list (cons :kind kind) (cons :status "completed"))))
+      (should (equal (concat verb " 2 files")
+                     (agent-shell--activity-group-descriptive-text
+                      :members (list (cons "a" call)))))
+      (should (equal (concat verb " 2 files")
+                     (agent-shell--activity-group-descriptive-text
+                      :members (list (cons "a" call) (cons "b" single)))))
+      (should (equal (concat verb " a file")
+                     (agent-shell--activity-group-descriptive-text
+                      :members (list (cons "a" single) (cons "b" single)))))
+      (should (equal (concat verb " 2 files")
+                     (agent-shell--activity-group-descriptive-text
+                      :members (list (cons "a" single) (cons "b" unknown)))))
+      (map-put! unknown :status "pending")
+      (should (equal (if (equal kind "read") "Read a file" "Delete a file")
+                     (agent-shell--activity-group-descriptive-text
+                      :members (list (cons "a" unknown))))))))
+
 (ert-deftest agent-shell--activity-group-thought-labels-test ()
   "Header labels reflect thoughts recorded on a group.
 A thought-only group reads \"Thinking\" (count) / \"Thought\" (descriptive);
