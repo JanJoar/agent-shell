@@ -133,6 +133,41 @@
                   (agent-shell-markdown-convert "Echo _hello_world"))
                  '(("Echo _hello_world" nil)))))
 
+(ert-deftest agent-shell-markdown-convert-italic-lone-asterisks ()
+  (should (equal (agent-shell-markdown--deconstruct
+                  (agent-shell-markdown-convert "a * b * c"))
+                 '(("a * b * c" nil)))))
+
+(ert-deftest agent-shell-markdown-convert-italic-asterisk-before-inline-code ()
+  (should (equal (agent-shell-markdown--deconstruct
+                  (agent-shell-markdown-convert
+                   "Started with * and ended with `*`"))
+                 '(("Started with * and ended with " nil)
+                   ("*" (agent-shell-markdown-inline-code))))))
+
+(ert-deftest agent-shell-markdown-convert-italic-closing-inside-inline-code ()
+  (should (equal (agent-shell-markdown--deconstruct
+                  (agent-shell-markdown-convert "a *b `c*` d"))
+                 '(("a *b " nil)
+                   ("c*" (agent-shell-markdown-inline-code))
+                   (" d" nil)))))
+
+(ert-deftest agent-shell-markdown-convert-bold-closing-inside-inline-code ()
+  (should (equal (agent-shell-markdown--deconstruct
+                  (agent-shell-markdown-convert "a **b `c**` d"))
+                 '(("a **b " nil)
+                   ("c**" (agent-shell-markdown-inline-code))
+                   (" d" nil)))))
+
+(ert-deftest agent-shell-markdown-convert-italic-around-inline-code ()
+  (should (equal (agent-shell-markdown--deconstruct
+                  (agent-shell-markdown-convert "a *b* `c` d"))
+                 '(("a " nil)
+                   ("b" (agent-shell-markdown-italic))
+                   (" " nil)
+                   ("c" (agent-shell-markdown-inline-code))
+                   (" d" nil)))))
+
 (ert-deftest agent-shell-markdown-convert-multiple ()
   (should (equal (agent-shell-markdown--deconstruct
                   (agent-shell-markdown-convert "_my_ **text**"))

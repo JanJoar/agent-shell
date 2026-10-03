@@ -702,8 +702,9 @@ bold `let vs let*', still stashing `**let vs let\\***' for copy."
 
 Markup characters are deleted; remaining inner text carries face
 `agent-shell-markdown-bold' layered on top of any existing face
-properties.  Spans that fall inside any of AVOID-RANGES are left
-untouched.  Returns non-nil if at least one replacement was made.
+properties.  Spans that fall inside or reach into any of AVOID-RANGES
+are left untouched.  Returns non-nil if at least one replacement was
+made.
 
 For example, the buffer \"hello **world**.\" becomes \"hello
 world.\" with face `agent-shell-markdown-bold' on \"world\"."
@@ -721,14 +722,19 @@ world.\" with face `agent-shell-markdown-bold' on \"world\"."
              (markup-end (match-end 1))
              (avoid (agent-shell-markdown-in-avoid-range-p
                      markup-start markup-end avoid-ranges)))
-        (if avoid
-            (goto-char (cdr avoid))
+        (cond
+         (avoid
+          (goto-char (cdr avoid)))
+         ((agent-shell-markdown--overlaps-avoid-range-p
+           markup-start markup-end avoid-ranges)
+          (goto-char (1+ markup-start)))
+         (t
           (agent-shell-markdown--emphasize-span
            :markup-start markup-start :markup-end markup-end
            :content-start (or (match-beginning 2) (match-beginning 3))
            :content-end (or (match-end 2) (match-end 3))
            :face 'agent-shell-markdown-bold)
-          (setq changed t))))
+          (setq changed t)))))
     changed))
 
 (cl-defun agent-shell-markdown--replace-italics (&key avoid-ranges)
@@ -741,7 +747,11 @@ untouched.  Returns non-nil if at least one replacement was made.
 
 A `_X_' span must be followed by punctuation, whitespace, or a line
 end, so intraword underscores such as \"_hello_world\" are left as
-literal text rather than emphasized.
+literal text rather than emphasized.  X may not start or end with
+whitespace, so a lone delimiter like the one in \"a * b *\" stays
+literal, as in CommonMark.  Spans reaching into an AVOID-RANGES
+entry (e.g. ending on the `*' of \"* and `*`\") are left alone too,
+since code spans bind tighter than emphasis.
 
 For example, the buffer \"hello *world*.\" becomes \"hello
 world.\" with face `agent-shell-markdown-italic' on \"world\"."
@@ -750,23 +760,36 @@ world.\" with face `agent-shell-markdown-italic' on \"world\"."
     (goto-char (point-min))
     (while (re-search-forward
             (rx (or (seq (or bol (one-or-more (any "\n \t")))
-                         (group "*" (group (one-or-more (not (any "\n*")))) "*"))
+                         (group "*"
+                                (group (not (any "\n\t *"))
+                                       (optional (zero-or-more (not (any "\n*")))
+                                                 (not (any "\n\t *"))))
+                                "*"))
                     (seq (or bol (one-or-more (any "\n \t")))
-                         (group "_" (group (one-or-more (not (any "\n_")))) "_")
+                         (group "_"
+                                (group (not (any "\n\t _"))
+                                       (optional (zero-or-more (not (any "\n_")))
+                                                 (not (any "\n\t _"))))
+                                "_")
                          (or (syntax punctuation) (syntax whitespace) line-end))))
             nil t)
       (let* ((markup-start (or (match-beginning 1) (match-beginning 3)))
              (markup-end (or (match-end 1) (match-end 3)))
              (avoid (agent-shell-markdown-in-avoid-range-p
                      markup-start markup-end avoid-ranges)))
-        (if avoid
-            (goto-char (cdr avoid))
+        (cond
+         (avoid
+          (goto-char (cdr avoid)))
+         ((agent-shell-markdown--overlaps-avoid-range-p
+           markup-start markup-end avoid-ranges)
+          (goto-char (1+ markup-start)))
+         (t
           (agent-shell-markdown--emphasize-span
            :markup-start markup-start :markup-end markup-end
            :content-start (or (match-beginning 2) (match-beginning 4))
            :content-end (or (match-end 2) (match-end 4))
            :face 'agent-shell-markdown-italic)
-          (setq changed t))))
+          (setq changed t)))))
     changed))
 
 (cl-defun agent-shell-markdown--replace-strikethroughs (&key avoid-ranges)
@@ -774,8 +797,8 @@ world.\" with face `agent-shell-markdown-italic' on \"world\"."
 
 Markup characters are deleted; remaining inner text carries face
 `agent-shell-markdown-strikethrough' layered on top of any existing face
-properties.  Spans inside any of AVOID-RANGES are left untouched.
-Returns non-nil if at least one replacement was made.
+properties.  Spans inside or reaching into any of AVOID-RANGES are
+left untouched.  Returns non-nil if at least one replacement was made.
 
 For example, the buffer \"a ~~b~~ c\" becomes \"a b c\" with face
 `agent-shell-markdown-strikethrough' on \"b\"."
@@ -789,13 +812,18 @@ For example, the buffer \"a ~~b~~ c\" becomes \"a b c\" with face
              (markup-end (match-end 0))
              (avoid (agent-shell-markdown-in-avoid-range-p
                      markup-start markup-end avoid-ranges)))
-        (if avoid
-            (goto-char (cdr avoid))
+        (cond
+         (avoid
+          (goto-char (cdr avoid)))
+         ((agent-shell-markdown--overlaps-avoid-range-p
+           markup-start markup-end avoid-ranges)
+          (goto-char (1+ markup-start)))
+         (t
           (agent-shell-markdown--emphasize-span
            :markup-start markup-start :markup-end markup-end
            :content-start (match-beginning 1) :content-end (match-end 1)
            :face 'agent-shell-markdown-strikethrough)
-          (setq changed t))))
+          (setq changed t)))))
     changed))
 
 (cl-defun agent-shell-markdown--replace-headers (&key avoid-ranges)
@@ -5108,6 +5136,33 @@ to avoid re-checking the same range on every match inside it."
                     lo (1+ mid))
             (setq hi mid))))
       (when (and candidate (<= end (cdr candidate)))
+        candidate))))
+
+(defun agent-shell-markdown--overlaps-avoid-range-p (start end avoid-ranges)
+  "Return the range in AVOID-RANGES overlapping START..END, or nil.
+
+Unlike `agent-shell-markdown-in-avoid-range-p', a range that only
+partly covers START..END counts.  AVOID-RANGES is sorted and
+non-overlapping, as produced by `agent-shell-markdown-sort-ranges'.
+Emphasis passes use this to reject a span that reaches into inline
+code, such as the `*' pair in \"* and `*`\".
+
+For example, with AVOID-RANGES [(5 . 8)], START..END 2..6 returns
+\(5 . 8), while 2..5 returns nil."
+  (when avoid-ranges
+    (let ((lo 0)
+          (hi (length avoid-ranges))
+          (candidate nil))
+      ;; Last range starting before END.  Ranges don't overlap, so it
+      ;; also ends last among those, and overlaps if any of them do.
+      (while (< lo hi)
+        (let* ((mid (/ (+ lo hi) 2))
+               (range (seq-elt avoid-ranges mid)))
+          (if (< (car range) end)
+              (setq candidate range
+                    lo (1+ mid))
+            (setq hi mid))))
+      (when (and candidate (< start (cdr candidate)))
         candidate))))
 
 (defun agent-shell-markdown--source-blocks ()
