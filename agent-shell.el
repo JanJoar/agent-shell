@@ -2904,6 +2904,8 @@ capitalize as needed.
 (defun agent-shell--raw-input-file-path (raw-input)
   "Return the first non-empty file path in RAW-INPUT, or nil.
 For example, ((file_path . \"a.el\")) returns \"a.el\"."
+  ;; Some tools put a non-string under `path' (e.g. an HTTP API's
+  ;; path params), so pick the first string.
   (seq-find (lambda (path) (and (stringp path) (not (string-empty-p path))))
             (seq-map (lambda (key) (map-elt raw-input key))
                      '(filepath fileName path file_path))))
