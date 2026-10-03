@@ -2327,28 +2327,35 @@ fast: requesting on... done"))
   "Test `agent-shell--make-transcript-frontmatter' function."
   ;; All fields present.
   (should (equal (agent-shell--make-transcript-frontmatter
-                  (list (cons "agent" "\"Claude\"")
-                        (cons "started" "2025-11-02T18:17:41-05:00")
-                        (cons "working_directory" "\"/home/user/project/\"")
-                        (cons "session_id" "\"eb5b6105\"")
-                        (cons "model" "\"opus\"")))
+                  '(("agent" . "Claude")
+                    ("started" . "2025-11-02T18:17:41-05:00")
+                    ("working_directory" . "/home/user/project/")
+                    ("session_id" . "eb5b6105")
+                    ("model" . "opus")))
                  "---
 agent: \"Claude\"
-started: 2025-11-02T18:17:41-05:00
+started: \"2025-11-02T18:17:41-05:00\"
 working_directory: \"/home/user/project/\"
 session_id: \"eb5b6105\"
 model: \"opus\"
 ---
 
 "))
-  ;; Nil entries are skipped, so optional fields omit their key entirely
-  ;; rather than emitting an empty value.
+  ;; Nil values omit their key entirely.
   (should (equal (agent-shell--make-transcript-frontmatter
-                  (list (cons "agent" "\"Claude\"")
-                        (when nil (cons "session_id" "\"eb5b6105\""))
-                        (when nil (cons "model" "\"opus\""))))
+                  '(("agent" . "Claude")
+                    ("session_id" . nil)
+                    ("model" . nil)))
                  "---
 agent: \"Claude\"
+---
+
+"))
+  ;; Quotes, backslashes and newlines are escaped.
+  (should (equal (agent-shell--make-transcript-frontmatter
+                  '(("working_directory" . "C:\\Users\\\"me\"\nproject")))
+                 "---
+working_directory: \"C:\\\\Users\\\\\\\"me\\\"\\nproject\"
 ---
 
 ")))
@@ -2631,7 +2638,7 @@ driven by a single helper on both paths."
           (agent-shell--append-transcript :text "after\n" :file-path file)
           (with-temp-buffer
             (insert-file-contents file)
-            (should (string-prefix-p "# Agent Shell Transcript" (buffer-string)))
+            (should (string-prefix-p "---\nagent: " (buffer-string)))
             (should (string-suffix-p "after\n" (buffer-string)))))
       (delete-directory root t))))
 

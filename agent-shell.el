@@ -11055,24 +11055,34 @@ For example:
        nil))))
 
 (defun agent-shell--make-transcript-frontmatter (fields)
-  "Render FIELDS as a YAML frontmatter block.
+  "Return FIELDS rendered as a YAML frontmatter block.
 
-FIELDS is an alist mapping string keys to pre-rendered YAML scalar
-values.  Nil elements are skipped, so callers can build FIELDS with
-`when' for optional fields.  Quoting values that YAML would otherwise
-misinterpret is the caller's responsibility.
+FIELDS is an alist mapping string keys to string values.  Values are
+emitted as double-quoted YAML scalars.  Fields with nil values are
+skipped, so optional fields can be passed as is.
 
 For example:
 
   (agent-shell--make-transcript-frontmatter
-   (list (cons \"agent\" \"Claude\") nil))
-    => \"---\\nagent: Claude\\n---\\n\\n\""
-  (concat "---\n"
-          (mapconcat (lambda (field)
-                       (format "%s: %s" (car field) (cdr field)))
-                     (delq nil fields)
-                     "\n")
-          "\n---\n\n"))
+   \='((\"agent\" . \"Claude\")
+     (\"model\" . nil)))
+
+returns:
+
+  ---
+  agent: \"Claude\"
+  ---
+"
+  (format "---
+%s
+---
+
+"
+          (string-join
+           (map-apply (lambda (key value)
+                        (format "%s: %s" key (json-encode-string value)))
+                      (map-filter (lambda (_key value) value) fields))
+           "\n")))
 
 (defun agent-shell--ensure-transcript-file ()
   "Return the transcript file path, creating it with header if needed.
@@ -11086,24 +11096,22 @@ disable the transcript for this shell and return nil."
               (dir (file-name-directory filepath)))
     (unless (file-exists-p filepath)
       (condition-case err
-          (let ((agent-name (or (map-nested-elt agent-shell--state '(:agent-config :mode-line-name))
-                                (map-nested-elt agent-shell--state '(:agent-config :buffer-name))
-                                "Unknown Agent"))
-                (session-id (map-nested-elt agent-shell--state '(:session :id)))
-                (model-id (map-nested-elt agent-shell--state '(:session :model-id))))
+          (progn
             (unless (file-directory-p (agent-shell-cwd))
               (error "%s no longer exists" (agent-shell-cwd)))
             (make-directory dir t)
             (write-region
              (concat (agent-shell--make-transcript-frontmatter
-                      (list (cons "agent" (format "%S" agent-name))
+                      (list (cons "agent" (or (map-nested-elt agent-shell--state '(:agent-config :mode-line-name))
+                                              (map-nested-elt agent-shell--state '(:agent-config :buffer-name))
+                                              "Unknown Agent"))
                             (cons "started" (format-time-string "%FT%T%:z"))
-                            (cons "working_directory" (format "%S" (agent-shell-cwd)))
-                            (when session-id
-                              (cons "session_id" (format "%S" session-id)))
-                            (when model-id
-                              (cons "model" (format "%S" model-id)))))
-                     "# Agent Shell Transcript\n\n")
+                            (cons "working_directory" (agent-shell-cwd))
+                            (cons "session_id" (map-nested-elt agent-shell--state '(:session :id)))
+                            (cons "model" (map-nested-elt agent-shell--state '(:session :model-id)))))
+                     "# Agent Shell Transcript
+
+")
              nil filepath nil 'no-message)
             (message "Created %s"
                      (agent-shell--shorten-paths filepath t)))
