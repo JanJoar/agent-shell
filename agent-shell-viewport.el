@@ -80,6 +80,7 @@
 (declare-function agent-shell-ui-forward-block "agent-shell")
 (declare-function agent-shell-ui-mode "agent-shell")
 (declare-function agent-shell--render-markdown "agent-shell")
+(declare-function agent-shell-completion--setup "agent-shell-completion")
 (declare-function agent-shell-completion-mode "agent-shell-completion")
 (declare-function agent-shell-yank-dwim "agent-shell")
 
@@ -1650,6 +1651,7 @@ For example, offer to kill associated shell session."
   ;; major-mode change, so view mode keeps its own text-property prefixes.
   (setq-local line-prefix "  ")
   (setq-local wrap-prefix "  ")
+  (agent-shell-completion--setup)
   (when agent-shell-file-completion-enabled
     (agent-shell-completion-mode +1))
   (agent-shell-list-edit-mode +1)

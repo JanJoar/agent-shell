@@ -1133,7 +1133,7 @@ always go to Evil modes if you need to with ~C-z~).
 | agent-shell-droid-default-session-mode-id     | Default Droid AI session mode ID.                                               |
 | agent-shell-droid-environment                 | Environment variables for the Factory Droid ACP client.                         |
 | agent-shell-embed-file-size-limit             | Maximum file size in bytes for embedding with ContentBlock::Resource.           |
-| agent-shell-file-completion-enabled           | Non-nil automatically enables file completion when starting shells.             |
+| agent-shell-file-completion-enabled           | Non-nil enables ‘agent-shell-completion-mode’ when starting shells.             |
 | agent-shell-file-display-action               | Display action for files opened from a link, image, or ‘@file’ mention.         |
 | agent-shell-github-acp-command                | Command and parameters for the GitHub Copilot agent client.                     |
 | agent-shell-github-default-model-id           | Default GitHub Copilot model ID.                                                |
@@ -1282,7 +1282,7 @@ always go to Evil modes if you need to with ~C-z~).
 |                                                       | agent-shell-clear-buffer                                | Clear the current shell buffer.                                               |
 |                                                       | agent-shell-cline-start-agent                           | Start an interactive Cline agent shell.                                       |
 |                                                       | agent-shell-codebuddy-start-agent                       | Start an interactive CodeBuddy agent shell.                                   |
-|                                                       | agent-shell-completion-mode                             | Toggle agent shell completion with @ or / prefix.                             |
+|                                                       | agent-shell-completion-mode                             | Toggle popping completion as @ or / are typed.                                |
 |                                                       | agent-shell-copy-as-markdown                            | Copy the region between BEG and END to the kill ring as markdown.             |
 |                                                       | agent-shell-copy-last-output                            | Copy the last agent output to the kill ring.                                  |
 |                                                       | agent-shell-copy-link-url-at-point                      | Copy the rendered Markdown link URL at POS (or point) to the kill ring.       |

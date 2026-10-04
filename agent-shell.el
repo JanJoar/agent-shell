@@ -4916,6 +4916,7 @@ variable (see makunbound)"))
       (agent-shell-ui-mode +1)
       (add-hook 'agent-shell-ui-post-expand-fragment-at-point-hook
                 #'agent-shell--render-markdown nil t)
+      (agent-shell-completion--setup)
       (when agent-shell-file-completion-enabled
         (agent-shell-completion-mode +1))
       (agent-shell--enable-dnd)
